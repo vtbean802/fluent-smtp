@@ -32,6 +32,10 @@ class Handler extends BaseHandler
 
         $connectionSettings = $this->filterConnectionVars($this->getSetting());
 
+        if (!empty($connectionSettings['credential_error'])) {
+            return $this->handleResponse(new \WP_Error(422, $connectionSettings['credential_error'], []));
+        }
+
         $ses = fluentMailSesConnection($connectionSettings);
 
         $this->response = $ses->sendRawEmail($mime);
@@ -168,6 +172,10 @@ class Handler extends BaseHandler
             $region,
             static::TRIGGER_ERROR
         );
+
+        if (!empty($config['security_token'])) {
+            $ses->setSecurityToken($config['security_token']);
+        }
 
         $validSenders = $ses->listVerifiedEmailAddresses();
         $addresses = [];
@@ -308,6 +316,10 @@ class Handler extends BaseHandler
             static::TRIGGER_ERROR
         );
 
+        if (!empty($config['security_token'])) {
+            $ses->setSecurityToken($config['security_token']);
+        }
+
         return $ses->getSendQuota();
     }
 
@@ -316,6 +328,19 @@ class Handler extends BaseHandler
         if ($connection['key_store'] == 'wp_config') {
             $connection['access_key'] = defined('FLUENTMAIL_AWS_ACCESS_KEY_ID') ? FLUENTMAIL_AWS_ACCESS_KEY_ID : '';
             $connection['secret_key'] = defined('FLUENTMAIL_AWS_SECRET_ACCESS_KEY') ? FLUENTMAIL_AWS_SECRET_ACCESS_KEY : '';
+        } else if ($connection['key_store'] == 'aws_instance_role') {
+            $credentials = CredentialProvider::get();
+
+            if (is_wp_error($credentials)) {
+                $connection['access_key'] = '';
+                $connection['secret_key'] = '';
+                $connection['security_token'] = '';
+                $connection['credential_error'] = $credentials->get_error_message();
+            } else {
+                $connection['access_key'] = $credentials['access_key'];
+                $connection['secret_key'] = $credentials['secret_key'];
+                $connection['security_token'] = $credentials['security_token'];
+            }
         }
 
         return $connection;

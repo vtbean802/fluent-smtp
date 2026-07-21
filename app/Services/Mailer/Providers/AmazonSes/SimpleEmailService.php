@@ -98,6 +98,12 @@ class SimpleEmailService
     protected $__secretKey;
 
     /**
+     * AWS Session/security token (required for temporary credentials
+     * obtained from an IAM role via the instance/task metadata service)
+     */
+    protected $__securityToken = null;
+
+    /**
      * Enable/disable
      */
     protected $__trigger_errors;
@@ -173,12 +179,27 @@ class SimpleEmailService
      *
      * @param string $accessKey Access key
      * @param string $secretKey Secret key
+     * @param string|null $securityToken Session token for temporary credentials
      * @return SimpleEmailService $this
      */
-    public function setAuth($accessKey, $secretKey)
+    public function setAuth($accessKey, $secretKey, $securityToken = null)
     {
         $this->__accessKey = $accessKey;
         $this->__secretKey = $secretKey;
+        $this->__securityToken = $securityToken ?: null;
+
+        return $this;
+    }
+
+    /**
+     * Set the AWS session/security token for temporary credentials
+     *
+     * @param string|null $securityToken
+     * @return SimpleEmailService $this
+     */
+    public function setSecurityToken($securityToken)
+    {
+        $this->__securityToken = $securityToken ?: null;
 
         return $this;
     }
@@ -256,6 +277,15 @@ class SimpleEmailService
     public function getSecretKey()
     {
         return $this->__secretKey;
+    }
+
+    /**
+     * Get the AWS session/security token (null for static credentials)
+     * @return string|null
+     */
+    public function getSecurityToken()
+    {
+        return $this->__securityToken;
     }
 
     /**

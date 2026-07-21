@@ -31,6 +31,12 @@ trait ValidatorTrait
             if (!defined('FLUENTMAIL_AWS_SECRET_ACCESS_KEY') || !FLUENTMAIL_AWS_SECRET_ACCESS_KEY) {
                 $errors['secret_key']['required'] = __('Please define FLUENTMAIL_AWS_SECRET_ACCESS_KEY in wp-config.php file.', 'fluent-smtp');
             }
+        } else if ($keyStoreType == 'aws_instance_role') {
+            $credentials = CredentialProvider::get();
+
+            if (is_wp_error($credentials)) {
+                $errors['api_error']['required'] = $credentials->get_error_message();
+            }
         }
 
         if ($errors) {
@@ -41,6 +47,11 @@ trait ValidatorTrait
     public function checkConnection($connection)
     {
         $connection = $this->filterConnectionVars($connection);
+
+        if (!empty($connection['credential_error'])) {
+            $this->throwValidationException(['api_error' => $connection['credential_error']]);
+        }
+
         $region = SimpleEmailService::regionToHost($connection['region']);
 
         $ses = new SimpleEmailService(
@@ -49,6 +60,10 @@ trait ValidatorTrait
             $region,
             true
         );
+
+        if (!empty($connection['security_token'])) {
+            $ses->setSecurityToken($connection['security_token']);
+        }
 
         $lists = $ses->listVerifiedEmailAddresses();
 

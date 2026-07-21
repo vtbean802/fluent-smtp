@@ -225,6 +225,11 @@ class SimpleEmailServiceRequest
             $date = (new \DateTime('now', new \DateTimeZone('UTC')))->format('Ymd\THis\Z');
             $headers[] = 'X-Amz-Date: ' . $date;
             $headers[] = 'Host: ' . $this->ses->getHost();
+
+            if ($securityToken = $this->ses->getSecurityToken()) {
+                $headers[] = 'X-Amz-Security-Token: ' . $securityToken;
+            }
+
             $headers[] = 'Authorization: ' . $this->__getAuthHeaderV4($date, $query);
 
         } else {
@@ -235,6 +240,11 @@ class SimpleEmailServiceRequest
 
             $headers[] = 'Date: ' . $date;
             $headers[] = 'Host: ' . $this->ses->getHost();
+
+            if ($securityToken = $this->ses->getSecurityToken()) {
+                $headers[] = 'X-Amz-Security-Token: ' . $securityToken;
+            }
+
             $headers[] = 'X-Amzn-Authorization: ' . $auth;
         }
 
@@ -332,13 +342,20 @@ class SimpleEmailServiceRequest
         }
 
         // ************* TASK 1: CREATE A CANONICAL REQUEST *************
+        // Headers must stay sorted alphabetically by header name
         $canonical_headers_list = [
             'host:' . $this->ses->getHost(),
             'x-amz-date:' . $amz_datetime
         ];
 
-        $canonical_headers = implode("\n", $canonical_headers_list) . "\n";
         $signed_headers = 'host;x-amz-date';
+
+        if ($security_token = $this->ses->getSecurityToken()) {
+            $canonical_headers_list[] = 'x-amz-security-token:' . $security_token;
+            $signed_headers .= ';x-amz-security-token';
+        }
+
+        $canonical_headers = implode("\n", $canonical_headers_list) . "\n";
         $payload_hash = hash($algo, $payload_data, false);
 
         $canonical_request = implode("\n", array(

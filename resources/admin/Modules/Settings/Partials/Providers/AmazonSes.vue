@@ -3,6 +3,7 @@
         <el-radio-group size="mini" v-model="connection.key_store">
             <el-radio-button label="db">{{ $t('Store Access Keys in DB') }}</el-radio-button>
             <el-radio-button label="wp_config">{{ $t('Access Keys in Config File') }}</el-radio-button>
+            <el-radio-button label="aws_instance_role">{{ $t('IAM Role (EC2/ECS)') }}</el-radio-button>
         </el-radio-group>
         <el-row v-if="connection.key_store == 'db'" :gutter="20">
             <el-col :md="12" :sm="24">
@@ -60,6 +61,17 @@ define( 'FLUENTMAIL_AWS_SECRET_ACCESS_KEY', '********************' );</textarea>
                 <error :error="errors.get('secret_key')" />
             </el-form-item>
         </div>
+        <div v-else-if="connection.key_store == 'aws_instance_role'">
+            <el-form-item>
+                <p>
+                    {{ $t('__AWS_INSTANCE_ROLE_INSTRUCTION') }}
+                </p>
+                <p class="small-help-text">
+                    {{ $t('__AWS_INSTANCE_ROLE_PERMISSIONS') }}
+                </p>
+                <error :error="errors.get('api_error')" />
+            </el-form-item>
+        </div>
 
         <el-form-item>
             <label for="ses-region">
@@ -101,7 +113,7 @@ define( 'FLUENTMAIL_AWS_SECRET_ACCESS_KEY', '********************' );</textarea>
         },
         watch: {
             'connection.key_store'(value) {
-                if (value === 'wp_config') {
+                if (value === 'wp_config' || value === 'aws_instance_role') {
                     this.connection.access_key = '';
                     this.connection.secret_key = '';
                 }

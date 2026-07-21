@@ -203,6 +203,10 @@ if (!function_exists('fluentMailSesConnection')) {
             false
         );
 
+        if (!empty($connection['security_token'])) {
+            $ses->setSecurityToken($connection['security_token']);
+        }
+
         $drivers[$connection['sender_email']] = $ses;
 
         return $drivers[$connection['sender_email']];
