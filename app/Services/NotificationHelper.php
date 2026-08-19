@@ -108,7 +108,7 @@ class NotificationHelper
             'blocking'  => false,
             'body'      => $data,
             'cookies'   => false,
-            'sslverify' => false,
+            'sslverify' => true,
         ));
 
         return true;
@@ -125,12 +125,12 @@ class NotificationHelper
         if ($method == 'POST') {
             $response = wp_remote_post($url, [
                 'body'      => $data,
-                'sslverify' => false,
+                'sslverify' => true,
                 'timeout'   => 50
             ]);
         } else {
             $response = wp_remote_get($url, [
-                'sslverify' => false,
+                'sslverify' => true,
                 'timeout'   => 50
             ]);
         }
@@ -162,12 +162,12 @@ class NotificationHelper
         if ($method == 'POST') {
             $response = wp_remote_post($url, [
                 'body'      => $data,
-                'sslverify' => false,
+                'sslverify' => true,
                 'timeout'   => 50
             ]);
         } else {
             $response = wp_remote_get($url, [
-                'sslverify' => false,
+                'sslverify' => true,
                 'timeout'   => 50
             ]);
         }
@@ -208,7 +208,7 @@ class NotificationHelper
             'redirection' => 5,
             'blocking'    => true,
             'httpversion' => '1.0',
-            'sslverify'   => false,
+            'sslverify'   => true,
             'data_format' => 'body',
         );
 
@@ -250,7 +250,7 @@ class NotificationHelper
             'redirection' => 5,
             'blocking'    => true,
             'httpversion' => '1.0',
-            'sslverify'   => false,
+            'sslverify'   => true,
             'data_format' => 'body',
         );
 
@@ -275,7 +275,7 @@ class NotificationHelper
 
     public static function sendPushoverMessage($message, $apiToken, $userKey, $blocking = false, $priority = 1)
     {
-        $title = sprintf(__('[%s] Failed to send email', 'fluent-smtp'), get_bloginfo('name'));
+        $title = sprintf(__('[%s] Failed to send email', 'fluent-smtp'), fluentMailSiteTitle());
 
         $args = array(
             'body'        => array(
@@ -335,7 +335,7 @@ class NotificationHelper
             $sendingTo = Arr::get($logData, 'to');
         }
 
-        $heading = sprintf(__('[%s] Failed to send email', 'fluent-smtp'), get_bloginfo('name'));
+        $heading = sprintf(__('[%s] Failed to send email', 'fluent-smtp'), fluentMailSiteTitle());
 
         return [
             'text'   => $heading,
@@ -399,7 +399,7 @@ class NotificationHelper
             $sendingTo = Arr::get($logData, 'to');
         }
 
-        $heading = sprintf(__('[%s] Failed to send email', 'fluent-smtp'), get_bloginfo('name'));
+        $heading = sprintf(__('[%s] Failed to send email', 'fluent-smtp'), fluentMailSiteTitle());
 
         $content = '## ' . $heading . "\n";
         $content .= __('**Website URL:** ', 'fluent-smtp') . site_url() . "\n";

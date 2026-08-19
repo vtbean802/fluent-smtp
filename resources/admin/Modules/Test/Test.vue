@@ -66,6 +66,9 @@
             <div v-else class="success_wrapper">
                 <h1><i class="el-icon el-icon-success"></i></h1>
                 <h3>{{ $t('Test Email Has been successfully sent') }}</h3>
+                <p v-if="time_taken_human" class="small-help-text">
+                    <i class="el-icon el-icon-timer"></i> {{ time_taken_human }}
+                </p>
                 <hr />
                 <div v-if="appVars.require_optin == 'yes'" style="margin-top: 10px;">
                     <email-subscriber />
@@ -83,7 +86,7 @@
 
 <script type="text/babel">
     import isEmpty from 'lodash/isEmpty'
-    import EmailSubscriber from '../../Pieces/_Subscrbe';
+    import EmailSubscriber from '../../Pieces/_Subscribe';
 
     export default {
         name: 'EmailTest',
@@ -99,19 +102,24 @@
                     email: '',
                     isHtml: true
                 },
-                email_success: false
+                email_success: false,
+                time_taken_human: ''
             };
         },
         methods: {
             sendEmail() {
                 this.loading = true;
                 this.debug_info = '';
+                this.time_taken_human = '';
 
                 this.$post('settings/test', { ...this.form }).then(res => {
+                    this.time_taken_human = res.data.time_taken_human || '';
                     this.$notify.success({
                         title: this.$t('Great!'),
                         offset: 19,
-                        message: res.data.message
+                        message: this.time_taken_human
+                            ? `${res.data.message} (${this.time_taken_human})`
+                            : res.data.message
                     });
                     this.email_success = true;
                 }).fail(res => {

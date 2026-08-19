@@ -132,7 +132,7 @@ class Handler extends BaseHandler {
             try {
                 // Use secure file reading with path traversal protection
                 $file = $this->secureFileRead($attachment[0]);
-                $fileName = basename($attachment[0]);
+                $fileName = $this->getAttachmentName($attachment);
 
                 // Get MIME type from the validated real path
                 $realPath = realpath($attachment[0]);
@@ -140,7 +140,7 @@ class Handler extends BaseHandler {
                 $filetype = str_replace(';', '', trim($mimeType));
             } catch (\Exception $e) {
                 // Log error and skip this attachment
-                error_log('FluentSMTP Smtp2Go: Failed to read attachment - ' . $e->getMessage());
+                $this->logAttachmentFailure('Smtp2Go', $e);
                 $file = false;
             }
 

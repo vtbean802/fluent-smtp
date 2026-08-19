@@ -35,25 +35,58 @@ class Handler extends BaseHandler
 
     public function setSettings($settings)
     {
+        $this->settings = self::withResolvedKeys($settings);
+
+        return $this;
+    }
+
+    /**
+     * The client id/secret can live in wp-config.php instead of the database,
+     * in which case the stored connection carries empty values for both.
+     *
+     * @param array $settings
+     * @return array
+     */
+    private static function withResolvedKeys($settings)
+    {
         if (Arr::get($settings, 'key_store') == 'wp_config') {
             $settings['client_id'] = defined('FLUENTMAIL_OUTLOOK_CLIENT_ID') ? FLUENTMAIL_OUTLOOK_CLIENT_ID : '';
             $settings['client_secret'] = defined('FLUENTMAIL_OUTLOOK_CLIENT_SECRET') ? FLUENTMAIL_OUTLOOK_CLIENT_SECRET : '';
         }
 
-        $this->settings = $settings;
+        return $settings;
+    }
 
-        return $this;
+    /**
+     * Renew the access token for a connection outside of a send, so an idle
+     * site cannot let the refresh token age out unnoticed.
+     *
+     * @param array $connection provider_settings of the connection
+     * @return true|\WP_Error
+     */
+    public function renewToken($connection)
+    {
+        try {
+            $this->getAccessToken(self::withResolvedKeys($connection), true);
+            return true;
+        } catch (\Exception $e) {
+            return new \WP_Error('token_renew_failed', $e->getMessage());
+        }
     }
 
     private function sendViaApi()
     {
-        $mime = chunk_split(base64_encode($this->phpMailer->getSentMIMEMessage()), 76, "\n");
+        $rawMessage = $this->normalizeListHeaders(
+            $this->phpMailer->getSentMIMEMessage()
+        );
+
+        $mime = chunk_split(base64_encode($rawMessage), 76, "\n");
 
         $data = $this->getSetting();
 
         $accessToken = $this->getAccessToken($data);
 
-        $api = (new API($data['client_id'], $data['client_secret']));
+        $api = (new API($data['client_id'], $data['client_secret'], Arr::get($data, 'tenant_id')));
 
         $result = $api->sendMime($mime, $accessToken);
 
@@ -76,6 +109,10 @@ class Handler extends BaseHandler
 
         $clientId = Arr::get($connection, 'client_id');
         $clientSecret = Arr::get($connection, 'client_secret');
+
+        if (!API::isValidTenant(Arr::get($connection, 'tenant_id'))) {
+            $errors['tenant_id']['invalid'] = __('Directory (tenant) ID must be the tenant GUID, a verified domain such as contoso.onmicrosoft.com, or one of common, organizations, consumers.', 'fluent-smtp');
+        }
 
         if ($keyStoreType == 'db') {
             if (!$clientId) {
@@ -106,8 +143,21 @@ class Handler extends BaseHandler
         $accessToken = Arr::get($connection, 'access_token');
         $authToken = Arr::get($connection, 'auth_token');
 
+        /*
+         * Tokens are issued by one authority and mean nothing at another, so a
+         * tenant change invalidates whatever is already stored. Say so instead
+         * of saving a connection whose credentials can now only fail at send
+         * time, with a 401 that reads as an unrelated problem. Re-authenticating
+         * posts the form as it stands, so the new tenant is used for the sign-in
+         * without needing this save to land first.
+         */
+        if (!$authToken && $accessToken && $this->tenantChanged($connection)) {
+            $errors['tenant_id']['reauth'] = __('The Directory (tenant) ID changed, so the existing Microsoft authentication no longer applies. Please authenticate with Office365 again before saving.', 'fluent-smtp');
+            $this->throwValidationException($errors);
+        }
+
         if (!$accessToken && $authToken) {
-            $tokens = (new API($clientId, $clientSecret))->generateToken($authToken);
+            $tokens = (new API($clientId, $clientSecret, Arr::get($connection, 'tenant_id')))->generateToken($authToken);
             if (is_wp_error($tokens)) {
                 $errors['auth_token']['required'] = $tokens->get_error_message();
             } else {
@@ -138,40 +188,113 @@ class Handler extends BaseHandler
         }
     }
 
+    /**
+     * Whether the submitted connection points at a different Microsoft
+     * authority than the one its stored tokens were issued by.
+     *
+     * Compares resolved values, so switching between an empty field and an
+     * explicit `common` — which address the same authority — is not treated as
+     * a change that costs the admin a sign-in.
+     *
+     * @param array $connection Submitted provider_settings.
+     * @return bool
+     */
+    private function tenantChanged($connection)
+    {
+        $senderEmail = Arr::get($connection, 'sender_email');
+
+        if (!$senderEmail) {
+            return false;
+        }
+
+        $stored = (new Settings())->getConnection($senderEmail);
+
+        if (Arr::get($stored, 'provider_settings.provider') !== 'outlook') {
+            return false;
+        }
+
+        return API::resolveTenant(Arr::get($stored, 'provider_settings.tenant_id'))
+            !== API::resolveTenant(Arr::get($connection, 'tenant_id'));
+    }
+
     private function saveNewTokens($existingData, $tokens)
     {
-        if (empty($tokens['access_token']) || empty($tokens['refresh_token'])) {
+        if (empty($tokens['access_token'])) {
             return false;
         }
 
         $senderEmail = $existingData['sender_email'];
 
         $existingData['access_token'] = $tokens['access_token'];
-        $existingData['refresh_token'] = $tokens['refresh_token'];
-        $existingData['expire_stamp'] = $tokens['expires_in'] + time();
+
+        /*
+         * A refresh response does not have to carry a new refresh token. When
+         * it does not, the one we already hold stays valid - so it is kept
+         * rather than overwritten. Bailing out here (as this used to) threw
+         * away a perfectly good access token as well, which left expire_stamp
+         * in the past and made every single send perform its own refresh. That
+         * eventually trips the identity server's throttling, and the
+         * connection looks dead for reasons nothing reports.
+         */
+        if (!empty($tokens['refresh_token'])) {
+            $existingData['refresh_token'] = $tokens['refresh_token'];
+        }
+
+        $expiresIn = !empty($tokens['expires_in']) ? (int)$tokens['expires_in'] : 3600;
+        $existingData['expire_stamp'] = $expiresIn + time();
+        $existingData['expires_in'] = $expiresIn;
 
         (new Settings())->updateConnection($senderEmail, $existingData);
-        return fluentMailGetProvider($senderEmail, true); // we are clearing the static cache here
+
+        fluentMailGetProvider($senderEmail, true); // we are clearing the static cache here
+
+        // Keep the token warm even on a site that is not sending, so an idle
+        // stretch cannot quietly age the refresh token out. See Gmail, which
+        // has had this since day one.
+        wp_schedule_single_event($existingData['expire_stamp'] - 360, 'fluentsmtp_renew_outlook_token');
+
+        return true;
     }
 
-    private function getAccessToken($config)
+    private function getAccessToken($config, $force = false)
     {
-        $accessToken = $config['access_token'];
+        $accessToken = Arr::get($config, 'access_token');
+        $expireStamp = (int)Arr::get($config, 'expire_stamp');
+
         // check if expired or will be expired in 300 seconds
-        if ( ($config['expire_stamp'] - 300) < time()) {
-            $fluentAPi = (new API($config['client_id'], $config['client_secret']));
+        if ($force || ($expireStamp - 300) < time()) {
+            $fluentAPi = (new API($config['client_id'], $config['client_secret'], Arr::get($config, 'tenant_id')));
 
             $tokens = $fluentAPi->sendTokenRequest('refresh_token', [
-                'refresh_token' => $config['refresh_token']
+                'refresh_token' => Arr::get($config, 'refresh_token')
             ]);
 
-            if(is_wp_error($tokens)) {
-                return false;
+            /*
+             * This used to return false, and the caller then handed `false` to
+             * the Graph API as the bearer token. The send failed with a generic
+             * 401 while the real reason - an expired or revoked refresh token,
+             * fixable only by reconnecting the account - was discarded here and
+             * never reached the log or the admin.
+             */
+            if (is_wp_error($tokens)) {
+                throw new \Exception(
+                    sprintf(
+                    /* translators: %s: error message returned by Microsoft */
+                        __('Could not renew the Microsoft access token: %s. Please reconnect this Outlook connection in FluentSMTP settings.', 'fluent-smtp'),
+                        $tokens->get_error_message()
+                    )
+                );
             }
 
             $this->saveNewTokens($config, $tokens);
 
-            $accessToken =  $tokens['access_token'];
+            $accessToken = Arr::get($tokens, 'access_token');
+        }
+
+        if (empty($accessToken)) {
+            throw new \Exception(
+                __('No usable Microsoft access token is available for this connection. Please reconnect this Outlook connection in FluentSMTP settings.', 'fluent-smtp')
+            );
         }
 
         return $accessToken;
@@ -179,21 +302,29 @@ class Handler extends BaseHandler
 
     public function getConnectionInfo($connection)
     {
-        if (Arr::get($connection, 'key_store') == 'wp_config') {
-            $connection['client_id'] = defined('FLUENTMAIL_OUTLOOK_CLIENT_ID') ? FLUENTMAIL_OUTLOOK_CLIENT_ID : '';
-            $connection['client_secret'] = defined('FLUENTMAIL_OUTLOOK_CLIENT_SECRET') ? FLUENTMAIL_OUTLOOK_CLIENT_SECRET : '';
+        $connection = self::withResolvedKeys($connection);
+
+        $tokenError = '';
+
+        try {
+            $this->getAccessToken($connection);
+        } catch (\Exception $e) {
+            // Reporting why the token could not be renewed is the whole point
+            // of this panel, so a failure here is shown rather than thrown.
+            $tokenError = $e->getMessage();
         }
 
-        $this->getAccessToken($connection);
         $info = fluentMailgetConnection($connection['sender_email']);
         $connection = $info->getSetting();
 
         $extraRow = [
             'title'   => __('Token Validity', 'fluent-smtp'),
-            'content' => 'Valid (' . intval((($connection['expire_stamp'] - time()) / 60)) . 'm)'
+            'content' => 'Valid (' . intval(((Arr::get($connection, 'expire_stamp') - time()) / 60)) . 'm)'
         ];
 
-        if (($connection['expire_stamp']) < time()) {
+        if ($tokenError) {
+            $extraRow['content'] = $tokenError;
+        } elseif (Arr::get($connection, 'expire_stamp') < time()) {
             $extraRow['content'] = 'Invalid. Please re-authenticate';
         }
 

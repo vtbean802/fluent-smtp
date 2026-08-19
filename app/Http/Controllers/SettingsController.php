@@ -75,6 +75,15 @@ class SettingsController extends Controller
 
                 if (is_string($value) && $value) {
                     $connection[$index] = sanitize_text_field($value);
+
+                    // Store the name the admin typed. A sender name copied from
+                    // the site title arrives HTML-escaped, and it is plain text
+                    // everywhere it is used. fluentMailGetSettings() decodes on
+                    // read as well, so installs that already hold an escaped
+                    // name are fixed whether or not they ever save again.
+                    if ($index === 'sender_name') {
+                        $connection[$index] = wp_specialchars_decode($connection[$index], ENT_QUOTES);
+                    }
                 }
             }
 
@@ -139,7 +148,7 @@ class SettingsController extends Controller
         ]);
     }
 
-    public function sendTestEmil(Request $request, Settings $settings)
+    public function sendTestEmail(Request $request, Settings $settings)
     {
         $this->verify();
 
@@ -158,16 +167,57 @@ class SettingsController extends Controller
                 define('FLUENTMAIL_EMAIL_TESTING', true);
             }
 
+            $startedAt = microtime(true);
+
             $settings->sendTestEmail($data, $settings->get());
 
+            /*
+             * The handover to the provider is synchronous, so this covers the whole
+             * round trip: connection/handshake, the API call or SMTP conversation and
+             * the provider's response. It is not the time until the mail lands in the
+             * inbox - that part is out of our hands.
+             */
+            $timeTaken = microtime(true) - $startedAt;
+
             return $this->sendSuccess([
-                'message' => __('Email delivered successfully.', 'fluent-smtp')
+                'message'          => __('Email delivered successfully.', 'fluent-smtp'),
+                'time_taken'       => round($timeTaken, 3),
+                'time_taken_human' => $this->formatDuration($timeTaken)
             ]);
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
+            /*
+             * Throwable, not Exception. A missing PHP extension, a type error or
+             * any other engine-level failure raised while sending is an \Error,
+             * which catch(Exception) lets through — the AJAX request then died
+             * with no JSON body and the UI span forever with no message shown.
+             *
+             * getCode() is meaningless on an \Error (almost always 0) and an HTTP
+             * status of 0 is not valid, so only a sane positive code is honoured.
+             */
+            $code = (int)$e->getCode();
+            if ($code < 400 || $code > 599) {
+                $code = 422;
+            }
+
             return $this->sendError([
                 'message' => $e->getMessage()
-            ], $e->getCode());
+            ], $code);
         }
+    }
+
+    protected function formatDuration($seconds)
+    {
+        if ($seconds < 1) {
+            return sprintf(
+                __('Delivered in %s milliseconds', 'fluent-smtp'),
+                number_format_i18n($seconds * 1000)
+            );
+        }
+
+        return sprintf(
+            __('Delivered in %s seconds', 'fluent-smtp'),
+            number_format_i18n($seconds, 2)
+        );
     }
 
     public function onFail($response)
@@ -607,8 +657,21 @@ class SettingsController extends Controller
 
         $clientId = Arr::get($connection, 'client_id');
         $clientSecret = Arr::get($connection, 'client_secret');
+        $tenantId = Arr::get($connection, 'tenant_id');
 
-        delete_option('_fluentsmtp_intended_outlook_info');
+        /*
+         * The tenant is part of the authority the browser is about to be sent
+         * to, so it is checked here as well as on save — this endpoint is
+         * reached before the connection has been stored, and refusing a bad
+         * value is better than quietly signing in against the wrong directory.
+         */
+        if (!\FluentMail\App\Services\Mailer\Providers\Outlook\API::isValidTenant($tenantId)) {
+            return $this->sendError([
+                'tenant_id' => [
+                    'invalid' => __('Directory (tenant) ID must be the tenant GUID, a verified domain such as contoso.onmicrosoft.com, or one of common, organizations, consumers.', 'fluent-smtp')
+                ]
+            ]);
+        }
 
         if (Arr::get($connection, 'key_store') == 'wp_config') {
             if (defined('FLUENTMAIL_OUTLOOK_CLIENT_ID')) {
@@ -629,11 +692,6 @@ class SettingsController extends Controller
                     ]
                 ]);
             }
-        } else {
-            update_option('_fluentsmtp_intended_outlook_info', [
-                'client_id'     => $clientId,
-                'client_secret' => $clientSecret
-            ]);
         }
 
         if (!$clientId) {
@@ -653,7 +711,7 @@ class SettingsController extends Controller
         }
 
         return $this->sendSuccess([
-            'auth_url' => (new \FluentMail\App\Services\Mailer\Providers\Outlook\API($clientId, $clientSecret))->getAuthUrl()
+            'auth_url' => (new \FluentMail\App\Services\Mailer\Providers\Outlook\API($clientId, $clientSecret, $tenantId))->getAuthUrl()
         ]);
     }
 
@@ -730,9 +788,9 @@ class SettingsController extends Controller
 
         $channelKeys = $request->get('channel_keys', []);
         $channelKeys = array_map('sanitize_text_field', $channelKeys);
-        $allChanelKeys = (new NotificationManager())->getAllChannelKeys();
-        $channelKeys = array_filter($channelKeys, function ($key) use ($allChanelKeys) {
-            return in_array($key, $allChanelKeys);
+        $allChannelKeys = (new NotificationManager())->getAllChannelKeys();
+        $channelKeys = array_filter($channelKeys, function ($key) use ($allChannelKeys) {
+            return in_array($key, $allChannelKeys);
         });
 
         $settings = (new Settings())->notificationSettings();

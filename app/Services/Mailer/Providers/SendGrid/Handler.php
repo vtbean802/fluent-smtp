@@ -173,7 +173,7 @@ class Handler extends BaseHandler
             try {
                 // Use secure file reading with path traversal protection
                 $file = $this->secureFileRead($attachment[0]);
-                $fileName = basename($attachment[0]);
+                $fileName = $this->getAttachmentName($attachment);
                 $contentId = wp_hash($attachment[0]);
 
                 // Get MIME type from the validated real path
@@ -182,7 +182,7 @@ class Handler extends BaseHandler
                 $filetype = str_replace(';', '', trim($mimeType));
             } catch (\Exception $e) {
                 // Log error and skip this attachment
-                error_log('FluentSMTP: Failed to read attachment - ' . $e->getMessage());
+                $this->logAttachmentFailure('SendGrid', $e);
                 $file = false;
             }
 

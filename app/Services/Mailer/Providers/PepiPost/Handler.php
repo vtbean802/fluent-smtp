@@ -178,10 +178,10 @@ class Handler extends BaseHandler
             try {
                 // Use secure file reading with path traversal protection
                 $file = $this->secureFileRead($attachment[0]);
-                $fileName = basename($attachment[0]);
+                $fileName = $this->getAttachmentName($attachment);
             } catch (\Exception $e) {
                 // Log error and skip this attachment
-                error_log('FluentSMTP PepiPost: Failed to read attachment - ' . $e->getMessage());
+                $this->logAttachmentFailure('PepiPost', $e);
                 $file = false;
             }
 

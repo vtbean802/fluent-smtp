@@ -66,6 +66,7 @@ return [
                 'us-west-1'      => __('US West (N. California)', 'fluent-smtp'),
                 'us-west-2'      => __('US West (Oregon)', 'fluent-smtp'),
                 'ca-central-1'   => __('Canada (Central)', 'fluent-smtp'),
+                'ca-west-1'      => __('Canada West (Calgary)', 'fluent-smtp'),
                 'eu-west-1'      => __('EU (Ireland)', 'fluent-smtp'),
                 'eu-west-2'      => __('EU (London)', 'fluent-smtp'),
                 'eu-west-3'      => __('Europe (Paris)', 'fluent-smtp'),
@@ -237,6 +238,7 @@ return [
                 'key_store'       => 'db',
                 'client_id'       => '',
                 'client_secret'   => '',
+                'tenant_id'       => '',
                 'auth_token'      => '',
                 'access_token'    => '',
                 'refresh_token'   => ''

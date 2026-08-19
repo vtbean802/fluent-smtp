@@ -175,13 +175,13 @@ class Handler extends BaseHandler
 
                 if (in_array($ext, $this->allowedAttachmentExts, true)) {
                     $files[] = [
-                        'name'    => basename($attachment[0]),
+                        'name'    => $this->getAttachmentName($attachment),
                         'content' => base64_encode($file)
                     ];
                 }
             } catch (\Exception $e) {
                 // Log error and skip this attachment
-                error_log('FluentSMTP SendInBlue: Failed to read attachment - ' . $e->getMessage());
+                $this->logAttachmentFailure('SendInBlue', $e);
                 continue;
             }
         }

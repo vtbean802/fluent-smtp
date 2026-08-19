@@ -85,7 +85,7 @@ trait ValidatorTrait
     public function getAccountInfo($apiKey)
     {
         $request = wp_remote_get($this->baseUrl . 'info?api_key=' . $apiKey, [
-            'sslverify' => false
+            'sslverify' => true
         ]);
 
         if (is_wp_error($request)) {
@@ -98,7 +98,7 @@ trait ValidatorTrait
         $body = json_decode($body, true);
 
         if (!$body || !is_array($body)) {
-            return new \WP_Error('invalid_response', 'Invalid Reponse from remote server');
+            return new \WP_Error('invalid_response', 'Invalid Response from remote server');
         }
 
         if ($statusCode === 200) {

@@ -7,7 +7,7 @@
                     <p>{{ $t('__wizard_sub') }}</p>
                 </div>
 
-                <div v-if="recommended && !skip_recommended" class="fsmtp_recommened">
+                <div v-if="recommended && !skip_recommended" class="fsmtp_recommended">
                     <h2>{{ recommended.title }}</h2>
                     <p>{{ recommended.subtitle }}</p>
                     <el-button @click="setRecommendation()" type="primary">{{ recommended.button_text }}</el-button>
@@ -25,6 +25,16 @@
             </div>
         </div>
         <div v-else>
+            <el-alert
+                v-for="connection in unhealthy_settings"
+                :key="connection.sender_email"
+                type="error"
+                :closable="false"
+                show-icon
+                style="margin-bottom: 15px;"
+                :title="$t('Connection needs attention') + ': ' + connection.sender_email + ' (' + connection.provider + ')'"
+                :description="connection.message"
+            />
             <el-row :gutter="20">
                 <el-col :sm="24" :md="16">
                     <div class="fss_dashboard_widget">
@@ -111,7 +121,7 @@
 import isEmpty from 'lodash/isEmpty';
 import ConnectionWizard from '../Settings/ConnectionWizard';
 import EmailsChart from './Charts/Emails';
-import EmailSubscriber from '../../Pieces/_Subscrbe';
+import EmailSubscriber from '../../Pieces/_Subscribe';
 import SubscribeDismiss from '../../Pieces/_SubscribeDismiss';
 import ByDayTimeSending from "./Charts/ByDayTimeSending.vue";
 
@@ -129,6 +139,7 @@ export default {
             stats: {},
             new_connection: {},
             settings_stat: {},
+            unhealthy_settings: [],
             date_range: '',
             showing_chart: true,
             pickerOptions: {
@@ -187,6 +198,7 @@ export default {
             this.$get('/').then(res => {
                 this.stats = res.stats;
                 this.settings_stat = res.settings_stat;
+                this.unhealthy_settings = res.unhealthy_settings || [];
             }).fail(error => {
                 console.log(error);
             }).always(() => {

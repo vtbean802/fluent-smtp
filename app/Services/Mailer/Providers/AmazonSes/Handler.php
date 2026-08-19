@@ -28,7 +28,11 @@ class Handler extends BaseHandler
 
     public function postSend()
     {
-        $mime = chunk_split(base64_encode($this->phpMailer->getSentMIMEMessage()), 76, "\n");
+        $rawMessage = $this->normalizeListHeaders(
+            $this->phpMailer->getSentMIMEMessage()
+        );
+
+        $mime = chunk_split(base64_encode($rawMessage), 76, "\n");
 
         $connectionSettings = $this->filterConnectionVars($this->getSetting());
 
@@ -112,7 +116,7 @@ class Handler extends BaseHandler
             try {
                 // Use secure file reading with path traversal protection
                 $file = $this->secureFileRead($attachment[0]);
-                $fileName = basename($attachment[0]);
+                $fileName = $this->getAttachmentName($attachment);
 
                 // Get MIME type from the validated real path
                 $realPath = realpath($attachment[0]);
@@ -120,7 +124,7 @@ class Handler extends BaseHandler
                 $filetype = str_replace(';', '', trim($mimeType));
             } catch (\Exception $e) {
                 // Log error and skip this attachment
-                error_log('FluentSMTP AmazonSes: Failed to read attachment - ' . $e->getMessage());
+                $this->logAttachmentFailure('AmazonSes', $e);
                 $file = false;
             }
 
